@@ -1,0 +1,315 @@
+
+#include <stdio.h>
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+
+#include "esp8266/gpio_struct.h"
+#include "esp8266/spi_struct.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_libc.h"
+
+#include "driver/gpio.h"
+#include "driver/spi.h"
+#include "esp8266/gpio_register.h"
+#include "esp8266/pin_mux_register.h"
+
+#include "driver/pwm.h"
+
+
+#define LCD_HOR 240
+#define LCD_VER 240
+
+#define LCD_RST_PIN 10// 16
+#define LCD_DC_PIN 12 // 14
+#define LCD_BACKLIGHT_PWM_0   12
+#define LCD_BACKLIGHT_PWM_PERIOD    (500) // 500us
+
+#define TAG "ips-lcd"
+
+
+// PIN8 --- GPIO16 / Deep-Sleep Wakeup
+// PIN9 --- GPIO14 / HSPICLK
+// PIN10 --- GPIO12 / HSPIQ
+// PIN12 --- GPIO13 / HSPID
+// PIN13 --- GPIO15 / HSPICS / I2S_BCK
+// PIN14 --- GPIO2 / UART TX during flash programming / I2S_WS
+// PIN15 --- GPIO0 / SPI_CS2
+// PIN16 --- GPIO4
+// PIN18 --- SPIHD / HSPIHD / GPIO9
+// PIN19 --- SPIWP / HSPIWP / GPIO10
+// PIN20 --- SPI_CS0 / GPIO11
+// PIN21 --- SPI_CLK / GPIO6 / SD_CLK
+// PIN22 --- SPI_MSIO / GPIO7 / SD_D0
+// PIN23 --- SPI_MOSI / GPIO8 / SD_D1
+// PIN24 --- GPIO5
+// PIN25 --- GPIO3 / UART RX during flash programming / U0RXD / I2S_DATA
+// PIN26 --- GPIO1 / SPI_CS1 / U0TXD
+
+static uint8_t lcd_dc_level = 0;
+
+// uint8_t framebuffer[LCD_HOR][LCD_VER];
+
+static esp_err_t lcd_delay_ms(uint32_t time)
+{
+    vTaskDelay(time / portTICK_RATE_MS);
+    return ESP_OK;
+}
+
+static esp_err_t lcd_set_dc(uint8_t dc)
+{
+    lcd_dc_level = dc;
+    return ESP_OK;
+}
+
+static esp_err_t lcd_reset()
+{
+    gpio_set_level(LCD_RST_PIN, 0);
+    lcd_delay_ms(100);
+    gpio_set_level(LCD_RST_PIN, 1);
+    lcd_delay_ms(100);
+    return ESP_OK;
+}
+
+
+static void IRAM_ATTR spi_event_callback(int event, void *arg)
+{
+	switch (event) {
+	case SPI_INIT_EVENT: {
+	}
+	break;
+
+	case SPI_TRANS_START_EVENT: {
+		gpio_set_level(LCD_DC_PIN, lcd_dc_level);
+	}
+	break;
+
+	case SPI_TRANS_DONE_EVENT: {
+
+	}
+	break;
+
+	case SPI_DEINIT_EVENT: {
+	}
+	break;
+	}
+}
+// Write an 8-bit cmd
+static esp_err_t lcd_write_cmd(uint8_t cmd)
+{
+    uint32_t buf = cmd << 24;
+    spi_trans_t trans = {0};
+    trans.mosi = &buf;
+    trans.bits.mosi = 8;
+    lcd_set_dc(0);
+    spi_trans(HSPI_HOST, trans);
+    return ESP_OK;
+}
+// Write an 8-bit data
+static esp_err_t lcd_write_byte(uint8_t data)
+{
+    uint32_t buf = data << 24;
+    spi_trans_t trans = {0};
+    trans.mosi = &buf;
+    trans.bits.mosi = 8;
+    lcd_set_dc(1);
+    spi_trans(HSPI_HOST, trans);
+    return ESP_OK;
+}
+
+static esp_err_t lcd_write_color(uint16_t data)
+{
+    uint32_t buf = data << 16;
+    spi_trans_t trans = {0};
+    trans.mosi = &buf;
+    trans.bits.mosi = 16;
+    lcd_set_dc(1);
+    spi_trans(HSPI_HOST, trans);
+    return ESP_OK;
+}
+
+void lcd_set_backlight(uint32_t light)
+{
+	pwm_set_duty(1, light);
+}
+
+void lcd_peripheral_init (void)
+{
+	/* init gpio */
+	gpio_config_t io_conf;
+	io_conf.intr_type = GPIO_INTR_DISABLE;
+	io_conf.mode = GPIO_MODE_OUTPUT;
+	io_conf.pin_bit_mask = (1ULL << LCD_DC_PIN) | (1ULL << LCD_RST_PIN); // |(1ULL << LCD_BACKLIGHT_PWM_0);
+	io_conf.pull_down_en = 0;
+	io_conf.pull_up_en = 1;
+	gpio_config(&io_conf);
+	// gpio_set_level(LCD_BACKLIGHT_PWM_0, 1);
+	/* init pwm */
+	// uint32_t lcd_backlight = LCD_BACKLIGHT_PWM_0;
+	// uint32_t lcd_backlight_duty = 0;
+	// pwm_init(LCD_BACKLIGHT_PWM_PERIOD, &lcd_backlight_duty, 1, &lcd_backlight);
+	// pwm_set_channel_invert(0x1 << 0);
+	// pwm_start();
+	/* init spi */
+	spi_config_t spi_config;
+	spi_config.interface.val = SPI_DEFAULT_INTERFACE;
+	spi_config.intr_enable.val = SPI_MASTER_DEFAULT_INTR_ENABLE;
+	spi_config.interface.cs_en = 0;
+	spi_config.interface.miso_en = 0;
+	spi_config.interface.cpol = 1;
+	spi_config.interface.cpha = 0;
+	spi_config.mode = SPI_MASTER_MODE;
+	spi_config.clk_div = SPI_10MHz_DIV;
+	spi_config.event_cb = spi_event_callback;
+	spi_init(HSPI_HOST, &spi_config);
+}
+
+void lcd_set_position(unsigned int x1,unsigned int y1,unsigned int x2,unsigned int y2)
+{ 
+	lcd_write_cmd(0x2a);
+	lcd_write_byte(x1>>8);
+	lcd_write_byte(x1);
+	lcd_write_byte(x2>>8);
+	lcd_write_byte(x2);
+
+	lcd_write_cmd(0x2b);
+	lcd_write_byte(y1>>8);
+	lcd_write_byte(y1);
+	lcd_write_byte(y2>>8);
+	lcd_write_byte(y2);
+
+	lcd_write_cmd(0x2c);					 						 
+}
+
+void lcd_clear(uint16_t color)
+{
+	uint16_t i,j;  	
+	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+    for(i=0;i<LCD_HOR;i++)
+	{
+		for (j=0;j<LCD_VER;j++)
+		{
+			lcd_write_color(color);	 			 
+		}
+	}
+}
+
+// esp_err_t lcd_update(void) 
+// {
+	// uint16_t i, j;
+	// union {
+		// uint16_t data;
+		// struct {
+			// uint16_t r:2;
+			// uint16_t r_resv:3;
+			// uint16_t g:4;
+			// uint16_t g_resv:2;
+			// uint16_t b:2;
+			// uint16_t b_resv:3;
+		// };
+	// } color;
+	// lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+    // for(i=0;i<LCD_HOR;i++)
+	// {
+		// for (j=0;j<LCD_VER;j++)
+		// {
+			// color.r = framebuffer[i][j] >> 6;
+			// color.g = (framebuffer[i][j] >> 2) & 0xf;
+			// color.r = framebuffer[i][j] & 0x3;
+			// lcd_write_color(color.data);	 			 
+		// }
+	// }
+    // return ESP_OK;
+// }
+
+esp_err_t lcd_init()
+{
+	lcd_peripheral_init();
+	lcd_reset();
+	
+//************* Start Initial Sequence **********// 
+	lcd_write_cmd(0x36); 
+	lcd_write_byte(0x00);
+
+	lcd_write_cmd(0x3A); 
+	lcd_write_byte(0x05);
+
+	lcd_write_cmd(0xB2);
+	lcd_write_byte(0x0C);
+	lcd_write_byte(0x0C);
+	lcd_write_byte(0x00);
+	lcd_write_byte(0x33);
+	lcd_write_byte(0x33);
+
+	lcd_write_cmd(0xB7); 
+	lcd_write_byte(0x35);  
+
+	lcd_write_cmd(0xBB);
+	lcd_write_byte(0x19);
+
+	lcd_write_cmd(0xC0);
+	lcd_write_byte(0x2C);
+
+	lcd_write_cmd(0xC2);
+	lcd_write_byte(0x01);
+
+	lcd_write_cmd(0xC3);
+	lcd_write_byte(0x12);   
+
+	lcd_write_cmd(0xC4);
+	lcd_write_byte(0x20);  
+
+	lcd_write_cmd(0xC6); 
+	lcd_write_byte(0x0F);    
+
+	lcd_write_cmd(0xD0); 
+	lcd_write_byte(0xA4);
+	lcd_write_byte(0xA1);
+
+	lcd_write_cmd(0xE0);
+	lcd_write_byte(0xD0);
+	lcd_write_byte(0x04);
+	lcd_write_byte(0x0D);
+	lcd_write_byte(0x11);
+	lcd_write_byte(0x13);
+	lcd_write_byte(0x2B);
+	lcd_write_byte(0x3F);
+	lcd_write_byte(0x54);
+	lcd_write_byte(0x4C);
+	lcd_write_byte(0x18);
+	lcd_write_byte(0x0D);
+	lcd_write_byte(0x0B);
+	lcd_write_byte(0x1F);
+	lcd_write_byte(0x23);
+
+	lcd_write_cmd(0xE1);
+	lcd_write_byte(0xD0);
+	lcd_write_byte(0x04);
+	lcd_write_byte(0x0C);
+	lcd_write_byte(0x11);
+	lcd_write_byte(0x13);
+	lcd_write_byte(0x2C);
+	lcd_write_byte(0x3F);
+	lcd_write_byte(0x44);
+	lcd_write_byte(0x51);
+	lcd_write_byte(0x2F);
+	lcd_write_byte(0x1F);
+	lcd_write_byte(0x1F);
+	lcd_write_byte(0x20);
+	lcd_write_byte(0x23);
+
+	lcd_write_cmd(0x21); 
+	lcd_write_cmd(0x11); 
+
+	lcd_write_cmd(0x29); 
+	// for( int i=0;i<LCD_VER;i++ )
+		// memset(framebuffer[i], 0xFFFF, LCD_HOR);
+	// lcd_update();
+	lcd_clear(0xffff);
+    return ESP_OK;
+}
+
+
