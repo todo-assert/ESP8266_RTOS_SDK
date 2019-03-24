@@ -23,8 +23,10 @@
 #define LCD_HOR 240
 #define LCD_VER 240
 
-#define LCD_RST_PIN 10// 16
-#define LCD_DC_PIN 12 // 14
+
+#define LCD_DC_PIN     12
+#define LCD_RST_PIN    15
+#define LCD_PIN_SEL  (1ULL<<LCD_DC_PIN) | (1ULL<<LCD_RST_PIN)
 #define LCD_BACKLIGHT_PWM_0   12
 #define LCD_BACKLIGHT_PWM_PERIOD    (500) // 500us
 
@@ -131,6 +133,18 @@ static esp_err_t lcd_write_color(uint16_t data)
     return ESP_OK;
 }
 
+static esp_err_t lcd_write_32bit(uint32_t data)
+{
+    uint32_t buf = data;
+    spi_trans_t trans = {0};
+    trans.mosi = &buf;
+    trans.bits.mosi = 32;
+    lcd_set_dc(1);
+    spi_trans(HSPI_HOST, trans);
+    return ESP_OK;
+}
+
+
 void lcd_set_backlight(uint32_t light)
 {
 	pwm_set_duty(1, light);
@@ -139,13 +153,15 @@ void lcd_set_backlight(uint32_t light)
 void lcd_peripheral_init (void)
 {
 	/* init gpio */
+#if 1
 	gpio_config_t io_conf;
 	io_conf.intr_type = GPIO_INTR_DISABLE;
 	io_conf.mode = GPIO_MODE_OUTPUT;
-	io_conf.pin_bit_mask = (1ULL << LCD_DC_PIN) | (1ULL << LCD_RST_PIN); // |(1ULL << LCD_BACKLIGHT_PWM_0);
+	io_conf.pin_bit_mask = LCD_PIN_SEL; // (1ULL << LCD_DC_PIN) | (1ULL << LCD_RST_PIN); // |(1ULL << LCD_BACKLIGHT_PWM_0);
 	io_conf.pull_down_en = 0;
 	io_conf.pull_up_en = 1;
 	gpio_config(&io_conf);
+#endif
 	// gpio_set_level(LCD_BACKLIGHT_PWM_0, 1);
 	/* init pwm */
 	// uint32_t lcd_backlight = LCD_BACKLIGHT_PWM_0;
@@ -160,9 +176,9 @@ void lcd_peripheral_init (void)
 	spi_config.interface.cs_en = 0;
 	spi_config.interface.miso_en = 0;
 	spi_config.interface.cpol = 1;
-	spi_config.interface.cpha = 0;
+	spi_config.interface.cpha = 1;
 	spi_config.mode = SPI_MASTER_MODE;
-	spi_config.clk_div = SPI_10MHz_DIV;
+	spi_config.clk_div = SPI_40MHz_DIV;
 	spi_config.event_cb = spi_event_callback;
 	spi_init(HSPI_HOST, &spi_config);
 }
@@ -197,6 +213,20 @@ void lcd_clear(uint16_t color)
 	}
 }
 
+void lcd_clear32(uint32_t color)
+{
+	uint16_t i,j;  	
+	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+    for(i=0;i<LCD_HOR;i++)
+	{
+		for (j=0;j<LCD_VER/2;j++)
+		{
+			lcd_write_32bit(color);	 			 
+		}
+	}
+}
+
+
 // esp_err_t lcd_update(void) 
 // {
 	// uint16_t i, j;
@@ -225,8 +255,10 @@ void lcd_clear(uint16_t color)
     // return ESP_OK;
 // }
 
-esp_err_t lcd_init()
+esp_err_t spilcd_init()
 {
+// extern void initspi(void);
+	// initspi();
 	lcd_peripheral_init();
 	lcd_reset();
 	
@@ -309,6 +341,12 @@ esp_err_t lcd_init()
 		// memset(framebuffer[i], 0xFFFF, LCD_HOR);
 	// lcd_update();
 	lcd_clear(0xffff);
+uint16_t c = 0;
+uint32_t k;
+	for(c=0;c<0xffff;c++) {
+		k = c << 16 | c;
+		lcd_clear(k);
+	}
     return ESP_OK;
 }
 
