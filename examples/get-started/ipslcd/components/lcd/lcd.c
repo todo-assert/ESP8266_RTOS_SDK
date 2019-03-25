@@ -223,9 +223,10 @@ void lcd_set_position(unsigned int x1,unsigned int y1,unsigned int x2,unsigned i
 
 void lcd_clear(uint16_t color)
 {
-	uint16_t i,j;  	
-	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+    uint16_t i,j;  	
+    lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
     lcd_set_dc(1);
+    trans_color.bits.mosi = 16;
     for(i=0;i<LCD_HOR;i++)
 	{
 		for (j=0;j<LCD_VER;j++)
@@ -242,9 +243,11 @@ void draw_qrcode(void)
 	uint8_t *start = &qrcode[ofsbit];
 	int i, j;
 	// lcd_set_position(40,40,200,200);
+	trans_color.bits.mosi = 16;
 	for(i=0;i<siz;i++) {
 		if( i%20 == 0 ) {
-			lcd_set_position(40,200-i/20,200,201);
+			lcd_set_position(40,200-i/20,199,200-i/20);
+			// lcd_set_position(200-i/20,40,200,200);
 			lcd_set_dc(1);
 		}
 		for(j=7;j>=0;j--) {
@@ -260,6 +263,7 @@ void lcd_clear32(uint32_t color)
 {
 	uint16_t i,j;  	
 	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+	trans_color.bits.mosi = 32;
     lcd_set_dc(1);
     for(i=0;i<LCD_HOR/2;i++)
 	{

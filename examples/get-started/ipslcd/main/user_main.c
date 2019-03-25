@@ -26,6 +26,7 @@ void app_main(void)
     spilcd_init();
     printf("SDK version:%s\n", esp_get_idf_version());
     while(!smart_config_over());
+    lcd_clear32(0xfff);
     ESP_LOGI(TAG, "smartconfig done !!!!!!!!!!!!!!!!!!!!!!!!!!!");
 while(1);
 }

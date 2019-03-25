@@ -7,6 +7,7 @@ extern bool smart_config_over(void);
 
 /* @NOTE lcd */
 extern esp_err_t spilcd_init();
+extern void lcd_clear32(uint32_t color);
 
 extern uint8_t qrcode[];
 
