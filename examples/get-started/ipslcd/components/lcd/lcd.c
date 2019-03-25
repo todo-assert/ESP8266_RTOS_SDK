@@ -26,13 +26,16 @@ extern uint8_t qrcode[];
 
 
 #define LCD_DC_PIN     12
-#define LCD_RST_PIN    15
+#define LCD_RST_PIN    16
+#define LCD_BACKLIGHT_PIN 15
 
-#define LCD_PIN_SEL  (1ULL<<LCD_DC_PIN) | (1ULL<<LCD_RST_PIN)
-#define LCD_BACKLIGHT_PWM_0   12
+#define LCD_PIN_SEL  (1ULL<<LCD_DC_PIN) | (1ULL<<LCD_RST_PIN) | (1ULL<<LCD_BACKLIGHT_PIN)
+#define LCD_BACKLIGHT_PWM   15
 #define LCD_BACKLIGHT_PWM_PERIOD    (500) // 500us
 
 #define TAG "ips-lcd"
+
+uint32_t lcd_backlight_duty = 180;
 
 static uint32_t sendbuf;
 spi_trans_t trans_color = {
@@ -165,9 +168,19 @@ static esp_err_t lcd_write_32bit(uint32_t data)
 
 void lcd_set_backlight(uint32_t light)
 {
+	lcd_backlight_duty = light;
 	pwm_set_duty(1, light);
 }
-
+/*
+static void backlight_listen_thread(void *pvParameters)
+{
+	while(1) {
+		pwm_set_period(LCD_BACKLIGHT_PWM_PERIOD);
+		// pwm_set_duty(1, lcd_backlight_duty);
+		lcd_delay_ms(300);
+	}
+}
+*/
 void lcd_peripheral_init (void)
 {
 	/* init gpio */
@@ -179,14 +192,16 @@ void lcd_peripheral_init (void)
 	io_conf.pull_down_en = 0;
 	io_conf.pull_up_en = 1;
 	gpio_config(&io_conf);
+	gpio_set_level(LCD_BACKLIGHT_PIN, 0);
 #endif
 	// gpio_set_level(LCD_BACKLIGHT_PWM_0, 1);
 	/* init pwm */
-	// uint32_t lcd_backlight = LCD_BACKLIGHT_PWM_0;
-	// uint32_t lcd_backlight_duty = 0;
-	// pwm_init(LCD_BACKLIGHT_PWM_PERIOD, &lcd_backlight_duty, 1, &lcd_backlight);
-	// pwm_set_channel_invert(0x1 << 0);
-	// pwm_start();
+#if 0
+	uint32_t lcd_backlight = LCD_BACKLIGHT_PWM;
+	pwm_init(LCD_BACKLIGHT_PWM_PERIOD, &lcd_backlight_duty, 1, &lcd_backlight);
+	pwm_set_channel_invert(0x1 << 0);
+	pwm_start();
+#endif
 	/* init spi */
 	spi_config_t spi_config;
 	spi_config.interface.val = SPI_DEFAULT_INTERFACE;
@@ -390,6 +405,9 @@ esp_err_t spilcd_init()
 	// lcd_update();
 	lcd_clear32(0xf00f);
 	draw_qrcode();
+	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
+	// backlight_listen_thread
+	// xTaskCreate(&backlight_listen_thread, "backlight", 512, NULL, 8, NULL);
 // uint32_t c = 0;
 // uint32_t k;
 	// for(c=0;c<0xffffffff;c+=0x10001) {
