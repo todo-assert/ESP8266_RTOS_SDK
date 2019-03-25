@@ -19,6 +19,7 @@
 
 #include "driver/pwm.h"
 
+extern uint8_t qrcode[];
 
 #define LCD_HOR 240
 #define LCD_VER 240
@@ -26,12 +27,18 @@
 
 #define LCD_DC_PIN     12
 #define LCD_RST_PIN    15
+
 #define LCD_PIN_SEL  (1ULL<<LCD_DC_PIN) | (1ULL<<LCD_RST_PIN)
 #define LCD_BACKLIGHT_PWM_0   12
 #define LCD_BACKLIGHT_PWM_PERIOD    (500) // 500us
 
 #define TAG "ips-lcd"
 
+static uint32_t sendbuf;
+spi_trans_t trans_color = {
+    .mosi = &sendbuf,
+    .bits.mosi = 32,
+};
 
 // PIN8 --- GPIO16 / Deep-Sleep Wakeup
 // PIN9 --- GPIO14 / HSPICLK
@@ -51,8 +58,6 @@
 // PIN25 --- GPIO3 / UART RX during flash programming / U0RXD / I2S_DATA
 // PIN26 --- GPIO1 / SPI_CS1 / U0TXD
 
-static uint8_t lcd_dc_level = 0;
-
 // uint8_t framebuffer[LCD_HOR][LCD_VER];
 
 static esp_err_t lcd_delay_ms(uint32_t time)
@@ -63,7 +68,11 @@ static esp_err_t lcd_delay_ms(uint32_t time)
 
 static esp_err_t lcd_set_dc(uint8_t dc)
 {
-    lcd_dc_level = dc;
+    if (dc) {
+        GPIO.out_w1ts |= (0x1 << LCD_DC_PIN);
+    } else {
+        GPIO.out_w1tc |= (0x1 << LCD_DC_PIN);
+    }
     return ESP_OK;
 }
 
@@ -76,29 +85,6 @@ static esp_err_t lcd_reset()
     return ESP_OK;
 }
 
-
-static void IRAM_ATTR spi_event_callback(int event, void *arg)
-{
-	switch (event) {
-	case SPI_INIT_EVENT: {
-	}
-	break;
-
-	case SPI_TRANS_START_EVENT: {
-		gpio_set_level(LCD_DC_PIN, lcd_dc_level);
-	}
-	break;
-
-	case SPI_TRANS_DONE_EVENT: {
-
-	}
-	break;
-
-	case SPI_DEINIT_EVENT: {
-	}
-	break;
-	}
-}
 // Write an 8-bit cmd
 static esp_err_t lcd_write_cmd(uint8_t cmd)
 {
@@ -124,6 +110,9 @@ static esp_err_t lcd_write_byte(uint8_t data)
 
 static esp_err_t lcd_write_color(uint16_t data)
 {
+    sendbuf = data << 16;
+    spi_trans(HSPI_HOST, trans_color);
+    return ESP_OK;
     uint32_t buf = data << 16;
     spi_trans_t trans = {0};
     trans.mosi = &buf;
@@ -135,12 +124,41 @@ static esp_err_t lcd_write_color(uint16_t data)
 
 static esp_err_t lcd_write_32bit(uint32_t data)
 {
-    uint32_t buf = data;
-    spi_trans_t trans = {0};
-    trans.mosi = &buf;
-    trans.bits.mosi = 32;
-    lcd_set_dc(1);
-    spi_trans(HSPI_HOST, trans);
+    int x, y;
+
+    // Waiting for an incomplete transfer
+    while (SPI1.cmd.usr);
+
+    // ENTER_CRITICAL();
+
+    // Set the cmd length and transfer cmd
+	SPI1.user.usr_command = 0;
+    // Set addr length and transfer addr
+	SPI1.user.usr_addr = 0;
+
+    // Set mosi length and transmit mosi
+	SPI1.user.usr_mosi = 1;
+	SPI1.user1.usr_mosi_bitlen = 511; // 31;
+	for(x=0;x<16;x++) {
+		SPI1.data_buf[x] = data;
+	}
+
+    // Set the length of the miso
+	SPI1.user.usr_miso = 0;
+
+    // Call the event callback function to send a transfer start event
+
+    // Start transmission
+    SPI1.cmd.usr = 1;
+
+    // Receive miso data
+	while (SPI1.cmd.usr);
+
+	for (x = 0; x < trans_color.bits.miso; x += 32) {
+		y = x / 32;
+		trans_color.miso[y] = SPI1.data_buf[y];
+	}
+
     return ESP_OK;
 }
 
@@ -179,24 +197,27 @@ void lcd_peripheral_init (void)
 	spi_config.interface.cpha = 1;
 	spi_config.mode = SPI_MASTER_MODE;
 	spi_config.clk_div = SPI_40MHz_DIV;
-	spi_config.event_cb = spi_event_callback;
+	spi_config.event_cb = NULL; // spi_event_callback;
 	spi_init(HSPI_HOST, &spi_config);
 }
 
 void lcd_set_position(unsigned int x1,unsigned int y1,unsigned int x2,unsigned int y2)
 { 
 	lcd_write_cmd(0x2a);
-	lcd_write_byte(x1>>8);
-	lcd_write_byte(x1);
-	lcd_write_byte(x2>>8);
-	lcd_write_byte(x2);
+    lcd_set_dc(1);
+	lcd_write_32bit(x1<<16|x2);
+	// lcd_write_byte(x1>>8);
+	// lcd_write_byte(x1);
+	// lcd_write_byte(x2>>8);
+	// lcd_write_byte(x2);
 
 	lcd_write_cmd(0x2b);
-	lcd_write_byte(y1>>8);
-	lcd_write_byte(y1);
-	lcd_write_byte(y2>>8);
-	lcd_write_byte(y2);
-
+    lcd_set_dc(1);
+	lcd_write_32bit(y1<<16|y2);
+	// lcd_write_byte(y1>>8);
+	// lcd_write_byte(y1);
+	// lcd_write_byte(y2>>8);
+	// lcd_write_byte(y2);
 	lcd_write_cmd(0x2c);					 						 
 }
 
@@ -204,6 +225,7 @@ void lcd_clear(uint16_t color)
 {
 	uint16_t i,j;  	
 	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
+    lcd_set_dc(1);
     for(i=0;i<LCD_HOR;i++)
 	{
 		for (j=0;j<LCD_VER;j++)
@@ -213,13 +235,35 @@ void lcd_clear(uint16_t color)
 	}
 }
 
+void draw_qrcode(void)
+{
+	uint32_t ofsbit = 0x3e;// qrcode[0xd] << 24 | qrcode[0xc] << 16 | qrcode[0xb] << 8 | qrcode[0xa];
+	size_t siz = 3200; // (qrcode[3] << 8 | qrcode[2]) - ofsbit;
+	uint8_t *start = &qrcode[ofsbit];
+	int i, j;
+	// lcd_set_position(40,40,200,200);
+	for(i=0;i<siz;i++) {
+		if( i%20 == 0 ) {
+			lcd_set_position(40,200-i/20,200,201);
+			lcd_set_dc(1);
+		}
+		for(j=7;j>=0;j--) {
+			if( start[i] & (1<<j) )
+				lcd_write_color(0xffff);
+			else
+				lcd_write_color(0);
+		}
+	}
+}
+
 void lcd_clear32(uint32_t color)
 {
 	uint16_t i,j;  	
 	lcd_set_position(0,0,LCD_HOR-1,LCD_VER-1);
-    for(i=0;i<LCD_HOR;i++)
+    lcd_set_dc(1);
+    for(i=0;i<LCD_HOR/2;i++)
 	{
-		for (j=0;j<LCD_VER/2;j++)
+		for (j=0;j<LCD_VER/16;j++)
 		{
 			lcd_write_32bit(color);	 			 
 		}
@@ -340,13 +384,14 @@ esp_err_t spilcd_init()
 	// for( int i=0;i<LCD_VER;i++ )
 		// memset(framebuffer[i], 0xFFFF, LCD_HOR);
 	// lcd_update();
-	lcd_clear(0xffff);
-uint16_t c = 0;
-uint32_t k;
-	for(c=0;c<0xffff;c++) {
-		k = c << 16 | c;
-		lcd_clear(k);
-	}
+	lcd_clear32(0xf00f);
+	draw_qrcode();
+// uint32_t c = 0;
+// uint32_t k;
+	// for(c=0;c<0xffffffff;c+=0x10001) {
+		// lcd_clear32(c);
+		// lcd_delay_ms(100);
+	// }
     return ESP_OK;
 }
 

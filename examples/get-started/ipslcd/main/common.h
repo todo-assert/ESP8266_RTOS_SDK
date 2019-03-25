@@ -8,5 +8,6 @@ extern bool smart_config_over(void);
 /* @NOTE lcd */
 extern esp_err_t spilcd_init();
 
+extern uint8_t qrcode[];
 
 #endif

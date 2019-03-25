@@ -22,7 +22,7 @@
 *******************************************************************************/
 void app_main(void)
 {
-    // start_smart_config_main();
+    start_smart_config_main();
     spilcd_init();
     printf("SDK version:%s\n", esp_get_idf_version());
     while(!smart_config_over());
