@@ -11,6 +11,7 @@ extern void start_sntp_main();
 /* @NOTE lcd */
 extern esp_err_t spilcd_init();
 extern void lcd_clear32(uint32_t color);
+extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
 extern void draw_background(const uint8_t []);
 
 extern const uint8_t qrcode[];

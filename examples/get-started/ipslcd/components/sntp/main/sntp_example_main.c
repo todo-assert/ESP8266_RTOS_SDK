@@ -122,6 +122,8 @@ static void sntp_example_task(void *arg)
     tzset();
 
     while (1) {
+        vTaskDelay(1000 / portTICK_RATE_MS);
+        continue;
         // update 'now' variable with current time
         time(&now);
         localtime_r(&now, &timeinfo);

@@ -437,12 +437,49 @@ void draw_background(const uint8_t table[])
 #endif
 
 #if 1
-void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const uint8_t table[])
+void draw_background_line(uint16_t x, uint16_t y, uint16_t w, const uint8_t table[])
 {
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
 	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
-	uint8_t const *start = (uint8_t *)&table[ofsbit];
+	uint8_t const *start = (uint8_t *)&background[0x36]; // &table[ofsbit];
+	int i =(LCD_HOR-y-1)*3*240+x*3;
+	trans_color.bits.mosi = 32;
+	union _double_color_t {
+		uint32_t data;
+		struct {
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
+			uint32_t r1:5;
+			uint32_t g1:6;
+			uint32_t b1:5;
+		};
+	};
+	size_t size =3*w;
+	union _double_color_t *p = (union _double_color_t *)&sendbuf;
+	lcd_set_position(x, y, x+w-1, y+1);
+	lcd_set_dc(1);
+	for(;i<size;i+=6) {
+		p->r0 = start[i+0] >> 3;
+		p->g0 = start[i+1] >> 2;
+		p->b0 = start[i+2] >> 3;
+		p->r1 = start[i+3] >> 3;
+		p->g1 = start[i+4] >> 2;
+		p->b1 = start[i+5] >> 3;
+		lcd_write_32bit_none();
+	}
+}
+void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const uint8_t table[])
+{
 	int i;
+	for(;y0<=y1;y0++)
+	{
+		draw_background_line(x0, y0, x1-x0+1, table);
+	}
+	return ;
+	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
+	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
+	uint8_t const *start = (uint8_t *)&table[ofsbit];
 	trans_color.bits.mosi = 32;
 	union _double_color_t {
 		uint32_t data;
@@ -459,7 +496,7 @@ void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1
 	union _double_color_t *p;
 	for(i=0;i<siz;i+=90) {
 		if( i%720 == 0 ) { // 240*3
-			lcd_set_position(0,y1-i/720,x1,y1-i/720);
+			lcd_set_position(x0,y1-i/720,x1,y1-i/720);
 			lcd_set_dc(1);
 		}
 		// Waiting for an incomplete transfer
@@ -619,6 +656,11 @@ esp_err_t spilcd_init()
 	draw_background(background);
 	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
 	draw_qrcode();
+	// int i;
+	// for(i=0;i<120;i++)
+	// draw_background_anywhere(119-i, 119-i, i*2, i*2, background);
+	// draw_background_anywhere(0, 0, 239, 239, background);
+	// lcd_clear32(0x0);
 extern void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color);
 extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
 	lcd_print(0, 0, "connect WIFI by QR-code", 0xffff);
@@ -648,8 +690,20 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
     if(x>LCD_HOR-ascii_1608.width||y>LCD_VER-ascii_1608.hight) return;	       
 	num = num - ' ';
 	lcd_set_position(x, y, x+ascii_1608.width-1, y+ascii_1608.hight-1);
+	union _double_color_t {
+		uint32_t data;
+		struct {
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
+			uint32_t r1:5;
+			uint32_t g1:6;
+			uint32_t b1:5;
+		};
+	};
 	if(!mode) //非叠加方式
 	{
+    		trans_color.bits.mosi = 16;
 		lcd_set_dc(1);
 		for(pos=0; pos<ascii_1608.hight; pos++)
 		{ 
@@ -657,7 +711,21 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 			for(t=0;t<ascii_1608.width;t++)
 		    {                 
 		        if(temp&0x01)color=colortemp;
-				else color=0xfff;
+				else {
+#if 1
+					uint8_t *s = &background[0x36+(((LCD_VER-(y+pos)-1)*240+x+t)*3)];
+					union _double_color_t p;
+					p.r0 = s[0] >> 3;
+					p.g0 = s[1] >> 2;
+					p.b0 = s[2] >> 3;
+					p.r1 = s[0] >> 3;
+					p.g1 = s[1] >> 2;
+					p.b1 = s[2] >> 3;
+					color = p.data & 0xffff;
+#else
+					color = 0x0; // p.data & 0xffff;
+#endif
+				}
 				lcd_write_color(color);	
 				temp>>=1; 
 				x++;
@@ -674,6 +742,17 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 			for(t=0;t<ascii_1608.width;t++)
 		    {                 
 		        if(temp&0x01)lcd_drawpoint(x+t,y+pos, color);//画一个点     
+			else{
+					uint8_t *s = &background[0x36+(((240-(y+pos))*240+x+t)*3)];
+					union _double_color_t p;
+					p.r0 = s[0] >> 3;
+					p.g0 = s[1] >> 2;
+					p.b0 = s[2] >> 3;
+					p.r1 = s[0] >> 3;
+					p.g1 = s[1] >> 2;
+					p.b1 = s[2] >> 3;
+					lcd_drawpoint(x+t,y+pos, p.data & 0xffff);
+}
 		        temp>>=1; 
 		    }
 		}
@@ -685,7 +764,7 @@ void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color)
 {
 	uint16_t i = 0;
 	while(str[i]) {
-		lcd_putch(x + i*ascii_1608.width, y, str[i], true, color);
+		lcd_putch(x + i*ascii_1608.width, y, str[i], false, color);
 		i++;
 	}
 }

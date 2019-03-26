@@ -6,6 +6,9 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 #include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
@@ -34,5 +37,24 @@ void app_main(void)
     draw_background(background);
     start_sntp_main();
     ESP_LOGI(TAG, "smartconfig done !!!!!!!!!!!!!!!!!!!!!!!!!!!");
-// while(1);
+    time_t now;
+    struct tm timeinfo;
+    char strftime_buf[64];
+    while(1) {
+extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
+        // update 'now' variable with current time
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        if (timeinfo.tm_year < (2016 - 1900)) {
+            ESP_LOGE(TAG, "The current date/time error");
+        } else {
+            strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+            lcd_print(20, 40, strftime_buf, 0xffff);
+            ESP_LOGI(TAG, "The current date/time in Shanghai is: %s", strftime_buf);
+        }
+
+        ESP_LOGI(TAG, "Free heap size: %d\n", esp_get_free_heap_size());
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
 }
