@@ -290,10 +290,11 @@ void lcd_clear(uint16_t color)
 }
 
 void draw_qrcode(void)
+#if 0
 {
 	uint32_t ofsbit = qrcode[0xd] << 24 | qrcode[0xc] << 16 | qrcode[0xb] << 8 | qrcode[0xa];
-	size_t siz = (qrcode[3] << 8 | qrcode[2]) - ofsbit;
-	uint8_t *start = &qrcode[ofsbit];
+	size_t siz = (qrcode[5] << 24 | qrcode[4] << 16 | qrcode[3] << 8 | qrcode[2]) - ofsbit;
+	uint8_t *start = (uint8_t *)&qrcode[ofsbit];
 	int i, j;
 	trans_color.bits.mosi = 16;
 	for(i=0;i<siz;i++) {
@@ -310,6 +311,53 @@ void draw_qrcode(void)
 		}
 	}
 }
+#else
+{
+	uint32_t ofsbit = qrcode[0xd] << 24 | qrcode[0xc] << 16 | qrcode[0xb] << 8 | qrcode[0xa];
+	size_t siz = (qrcode[3] << 8 | qrcode[2]) - ofsbit;
+	uint8_t *start = &qrcode[ofsbit];
+	int i, j;
+	trans_color.bits.mosi = 32;
+	int x, y;
+	for(i=0;i<siz;i+=4) {
+		if( i%20 == 0 ) {
+			lcd_set_position(40,200-i/20,199,200-i/20);
+			// lcd_set_position(200-i/20,40,200,200);
+			lcd_set_dc(1);
+		}
+		// Waiting for an incomplete transfer
+		while (SPI1.cmd.usr);
+		SPI1.user.usr_command = 0;
+		SPI1.user.usr_addr = 0;
+		SPI1.user.usr_mosi = 1;
+		SPI1.user1.usr_mosi_bitlen = 511; // 16*32 - 1; // 31;
+		for(x=0;x<4;x++) {
+			for(j=6;j>=0;j-=2) {
+				SPI1.data_buf[4*x+(6-j)/2] = (start[i+x] & (1<<(j+1)) ? 0xffff<<16 : 0) | (start[i+x] & (1<<(j+0)) ? 0xffff : 0);
+				// if( start[i+x/4] & (1<<j) )
+					// SPI1.data_buf[x] = 0xffff;
+				// else
+					// SPI1.data_buf[x] = 0;
+			}
+			
+		}
+		SPI1.user.usr_miso = 0;
+		SPI1.cmd.usr = 1;
+		while (SPI1.cmd.usr);
+
+		for (x = 0; x < trans_color.bits.miso; x += 32) {
+			y = x / 32;
+			trans_color.miso[y] = SPI1.data_buf[y];
+		}
+		// for(j=7;j>=0;j--) {
+			// if( start[i] & (1<<j) )
+				// lcd_write_color(0xffff);
+			// else
+				// lcd_write_color(0);
+		// }
+	}
+}
+#endif
 
 extern const uint8_t background[];
 void draw_background(const uint8_t table[])
@@ -317,7 +365,7 @@ void draw_background(const uint8_t table[])
 {
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
 	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
-	uint8_t const *start = &table[ofsbit];
+	uint8_t const *start = (uint8_t *)&table[ofsbit];
 	int i;
 	trans_color.bits.mosi = 32;
 	union _double_color_t {
@@ -347,12 +395,12 @@ void draw_background(const uint8_t table[])
 		SPI1.user1.usr_mosi_bitlen = 479; // 15*32; // 31;
 		for(x=0;x<15;x++) {
 			p = (union _double_color_t *)&SPI1.data_buf[x];
-			p->r0 = start[i+6*x+0] >> 3;
-			p->g0 = start[i+6*x+1] >> 2;
-			p->b0 = start[i+6*x+2] >> 3;
-			p->r1 = start[i+6*x+3] >> 3;
-			p->g1 = start[i+6*x+4] >> 2;
-			p->b1 = start[i+6*x+5] >> 3;
+			p->r1 = start[i+6*x+0] >> 3;
+			p->g1 = start[i+6*x+1] >> 2;
+			p->b1 = start[i+6*x+2] >> 3;
+			p->r0 = start[i+6*x+3] >> 3;
+			p->g0 = start[i+6*x+4] >> 2;
+			p->b0 = start[i+6*x+5] >> 3;
 		}
 		SPI1.user.usr_miso = 0;
 		SPI1.cmd.usr = 1;
@@ -369,18 +417,18 @@ void draw_background(const uint8_t table[])
 {
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
 	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
-	uint8_t *start = &table[ofsbit];
+	uint8_t *start = (uint8_t *)&table[ofsbit];
 	int i;
 	trans_color.bits.mosi = 32;
 	union _double_color_t {
 		uint32_t data;
 		struct {
-			uint32_t r0:5;
-			uint32_t g0:6;
-			uint32_t b0:5;
 			uint32_t r1:5;
 			uint32_t g1:6;
 			uint32_t b1:5;
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
 		};
 	};
 	union _double_color_t *p = (union _double_color_t *)&sendbuf;
@@ -527,21 +575,9 @@ esp_err_t spilcd_init()
 	lcd_write_cmd(0x11); 
 
 	lcd_write_cmd(0x29); 
-	// for( int i=0;i<LCD_VER;i++ )
-		// memset(framebuffer[i], 0xFFFF, LCD_HOR);
-	// lcd_update();
-	// lcd_clear32(0xf00f);
 	draw_background(background);
-	draw_qrcode();
 	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
-	// backlight_listen_thread
-	// xTaskCreate(&backlight_listen_thread, "backlight", 512, NULL, 8, NULL);
-// uint32_t c = 0;
-// uint32_t k;
-	// for(c=0;c<0xffffffff;c+=0x10001) {
-		// lcd_clear32(c);
-		// lcd_delay_ms(100);
-	// }
+	draw_qrcode();
     return ESP_OK;
 }
 
