@@ -322,22 +322,16 @@ void draw_qrcode(void)
 	for(i=0;i<siz;i+=4) {
 		if( i%20 == 0 ) {
 			lcd_set_position(40,200-i/20,199,200-i/20);
-			// lcd_set_position(200-i/20,40,200,200);
 			lcd_set_dc(1);
 		}
-		// Waiting for an incomplete transfer
 		while (SPI1.cmd.usr);
 		SPI1.user.usr_command = 0;
 		SPI1.user.usr_addr = 0;
 		SPI1.user.usr_mosi = 1;
-		SPI1.user1.usr_mosi_bitlen = 511; // 16*32 - 1; // 31;
+		SPI1.user1.usr_mosi_bitlen = 511;
 		for(x=0;x<4;x++) {
 			for(j=6;j>=0;j-=2) {
 				SPI1.data_buf[4*x+(6-j)/2] = (start[i+x] & (1<<(j+1)) ? 0xffff<<16 : 0) | (start[i+x] & (1<<(j+0)) ? 0xffff : 0);
-				// if( start[i+x/4] & (1<<j) )
-					// SPI1.data_buf[x] = 0xffff;
-				// else
-					// SPI1.data_buf[x] = 0;
 			}
 			
 		}
@@ -349,12 +343,6 @@ void draw_qrcode(void)
 			y = x / 32;
 			trans_color.miso[y] = SPI1.data_buf[y];
 		}
-		// for(j=7;j>=0;j--) {
-			// if( start[i] & (1<<j) )
-				// lcd_write_color(0xffff);
-			// else
-				// lcd_write_color(0);
-		// }
 	}
 }
 #endif
@@ -380,11 +368,10 @@ void draw_background(const uint8_t table[])
 		};
 	};
 	int x, y;
-	union _double_color_t *p; //  = (union _double_color_t *)&sendbuf;
+	union _double_color_t *p;
 	for(i=0;i<siz;i+=90) {
 		if( i%720 == 0 ) { // 240*3
 			lcd_set_position(0,239-i/720,239,239-i/720);
-			// lcd_set_position(200-i/20,40,200,200);
 			lcd_set_dc(1);
 		}
 		// Waiting for an incomplete transfer
@@ -445,6 +432,60 @@ void draw_background(const uint8_t table[])
 		p->g1 = start[i+4] >> 2;
 		p->b1 = start[i+5] >> 3;
 		lcd_write_32bit_none();
+	}
+}
+#endif
+
+#if 1
+void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const uint8_t table[])
+{
+	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
+	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
+	uint8_t const *start = (uint8_t *)&table[ofsbit];
+	int i;
+	trans_color.bits.mosi = 32;
+	union _double_color_t {
+		uint32_t data;
+		struct {
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
+			uint32_t r1:5;
+			uint32_t g1:6;
+			uint32_t b1:5;
+		};
+	};
+	int x, y;
+	union _double_color_t *p;
+	for(i=0;i<siz;i+=90) {
+		if( i%720 == 0 ) { // 240*3
+			lcd_set_position(0,y1-i/720,x1,y1-i/720);
+			lcd_set_dc(1);
+		}
+		// Waiting for an incomplete transfer
+		while (SPI1.cmd.usr);
+		SPI1.user.usr_command = 0;
+		SPI1.user.usr_addr = 0;
+		SPI1.user.usr_mosi = 1;
+		SPI1.user1.usr_mosi_bitlen = 479; // 15*32; // 31;
+		for(x=0;x<15;x++) {
+			p = (union _double_color_t *)&SPI1.data_buf[x];
+			p->r1 = start[i+6*x+0] >> 3;
+			p->g1 = start[i+6*x+1] >> 2;
+			p->b1 = start[i+6*x+2] >> 3;
+			p->r0 = start[i+6*x+3] >> 3;
+			p->g0 = start[i+6*x+4] >> 2;
+			p->b0 = start[i+6*x+5] >> 3;
+		}
+		SPI1.user.usr_miso = 0;
+		SPI1.cmd.usr = 1;
+		while (SPI1.cmd.usr);
+
+		for (x = 0; x < trans_color.bits.miso; x += 32) {
+			y = x / 32;
+			trans_color.miso[y] = SPI1.data_buf[y];
+		}
+		// lcd_write_32bit_none();
 	}
 }
 #endif
@@ -578,7 +619,73 @@ esp_err_t spilcd_init()
 	draw_background(background);
 	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
 	draw_qrcode();
+extern void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color);
+extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
+	lcd_print(0, 0, "connect WIFI by QR-code", 0xffff);
     return ESP_OK;
 }
 
+// extern const uint8_t font_1608[];
+typedef struct _font_t {
+	uint8_t width;
+	uint8_t hight;
+	uint32_t size;
+	const uint8_t *font;
+}font_t;
+extern font_t ascii_1608;
+void lcd_drawpoint(uint16_t x,uint16_t y, uint16_t color)
+{
+	lcd_set_position(x, y, x+1, y+1);
+	lcd_set_dc(1);
+	lcd_write_color(color); 
+}
+void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
+{
+    uint8_t temp;
+    uint8_t pos,t;
+	uint16_t x0=x;
+	uint16_t colortemp=color;      
+    if(x>LCD_HOR-ascii_1608.width||y>LCD_VER-ascii_1608.hight) return;	       
+	num = num - ' ';
+	lcd_set_position(x, y, x+ascii_1608.width-1, y+ascii_1608.hight-1);
+	if(!mode) //非叠加方式
+	{
+		lcd_set_dc(1);
+		for(pos=0; pos<ascii_1608.hight; pos++)
+		{ 
+			temp=ascii_1608.font[(uint16_t)num*ascii_1608.hight+pos];		 //调用1608字体
+			for(t=0;t<ascii_1608.width;t++)
+		    {                 
+		        if(temp&0x01)color=colortemp;
+				else color=0xfff;
+				lcd_write_color(color);	
+				temp>>=1; 
+				x++;
+		    }
+			x=x0;
+			y++;
+		}	
+	}
+	else//叠加方式
+	{
+		for(pos=0;pos<ascii_1608.hight;pos++)
+		{
+		    temp=ascii_1608.font[(uint16_t)num*ascii_1608.hight+pos];		 //调用1608字体
+			for(t=0;t<ascii_1608.width;t++)
+		    {                 
+		        if(temp&0x01)lcd_drawpoint(x+t,y+pos, color);//画一个点     
+		        temp>>=1; 
+		    }
+		}
+	}
+	color=colortemp;	    	   	 	  
+}  
 
+void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color)
+{
+	uint16_t i = 0;
+	while(str[i]) {
+		lcd_putch(x + i*ascii_1608.width, y, str[i], true, color);
+		i++;
+	}
+}
