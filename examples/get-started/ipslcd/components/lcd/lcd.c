@@ -312,7 +312,60 @@ void draw_qrcode(void)
 }
 
 extern const uint8_t background[];
-void draw_background(const uint8_t table)
+void draw_background(const uint8_t table[])
+#if 1
+{
+	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
+	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
+	uint8_t const *start = &table[ofsbit];
+	int i;
+	trans_color.bits.mosi = 32;
+	union _double_color_t {
+		uint32_t data;
+		struct {
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
+			uint32_t r1:5;
+			uint32_t g1:6;
+			uint32_t b1:5;
+		};
+	};
+	int x, y;
+	union _double_color_t *p; //  = (union _double_color_t *)&sendbuf;
+	for(i=0;i<siz;i+=90) {
+		if( i%720 == 0 ) { // 240*3
+			lcd_set_position(0,239-i/720,239,239-i/720);
+			// lcd_set_position(200-i/20,40,200,200);
+			lcd_set_dc(1);
+		}
+		// Waiting for an incomplete transfer
+		while (SPI1.cmd.usr);
+		SPI1.user.usr_command = 0;
+		SPI1.user.usr_addr = 0;
+		SPI1.user.usr_mosi = 1;
+		SPI1.user1.usr_mosi_bitlen = 479; // 15*32; // 31;
+		for(x=0;x<15;x++) {
+			p = (union _double_color_t *)&SPI1.data_buf[x];
+			p->r0 = start[i+6*x+0] >> 3;
+			p->g0 = start[i+6*x+1] >> 2;
+			p->b0 = start[i+6*x+2] >> 3;
+			p->r1 = start[i+6*x+3] >> 3;
+			p->g1 = start[i+6*x+4] >> 2;
+			p->b1 = start[i+6*x+5] >> 3;
+		}
+		SPI1.user.usr_miso = 0;
+		SPI1.cmd.usr = 1;
+		while (SPI1.cmd.usr);
+
+		for (x = 0; x < trans_color.bits.miso; x += 32) {
+			y = x / 32;
+			trans_color.miso[y] = SPI1.data_buf[y];
+		}
+		// lcd_write_32bit_none();
+	}
+}
+#else
 {
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
 	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
@@ -346,6 +399,7 @@ void draw_background(const uint8_t table)
 		lcd_write_32bit_none();
 	}
 }
+#endif
 
 void lcd_clear32(uint32_t color)
 {
