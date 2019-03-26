@@ -31,7 +31,8 @@ void app_main(void)
     while(!smart_config_over()) {
         vTaskDelay(500 / portTICK_RATE_MS);
     }
-    lcd_clear32(0xfff);
+    draw_background(background);
+    start_sntp_main();
     ESP_LOGI(TAG, "smartconfig done !!!!!!!!!!!!!!!!!!!!!!!!!!!");
 // while(1);
 }

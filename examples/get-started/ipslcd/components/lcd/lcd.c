@@ -165,6 +165,44 @@ static esp_err_t lcd_write_32bit(uint32_t data)
     return ESP_OK;
 }
 
+static esp_err_t lcd_write_32bit_none(void)
+{
+    int x, y;
+
+    // Waiting for an incomplete transfer
+    while (SPI1.cmd.usr);
+
+    // ENTER_CRITICAL();
+
+    // Set the cmd length and transfer cmd
+	SPI1.user.usr_command = 0;
+    // Set addr length and transfer addr
+	SPI1.user.usr_addr = 0;
+
+    // Set mosi length and transmit mosi
+	SPI1.user.usr_mosi = 1;
+	SPI1.user1.usr_mosi_bitlen = 31; // 31;
+	SPI1.data_buf[0] = trans_color.mosi[0];
+
+    // Set the length of the miso
+	SPI1.user.usr_miso = 0;
+
+    // Call the event callback function to send a transfer start event
+
+    // Start transmission
+    SPI1.cmd.usr = 1;
+
+    // Receive miso data
+	while (SPI1.cmd.usr);
+
+	for (x = 0; x < trans_color.bits.miso; x += 32) {
+		y = x / 32;
+		trans_color.miso[y] = SPI1.data_buf[y];
+	}
+
+    return ESP_OK;
+}
+
 
 void lcd_set_backlight(uint32_t light)
 {
@@ -270,6 +308,42 @@ void draw_qrcode(void)
 			else
 				lcd_write_color(0);
 		}
+	}
+}
+
+extern const uint8_t background[];
+void draw_background(const uint8_t table)
+{
+	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
+	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
+	uint8_t *start = &table[ofsbit];
+	int i;
+	trans_color.bits.mosi = 32;
+	union _double_color_t {
+		uint32_t data;
+		struct {
+			uint32_t r0:5;
+			uint32_t g0:6;
+			uint32_t b0:5;
+			uint32_t r1:5;
+			uint32_t g1:6;
+			uint32_t b1:5;
+		};
+	};
+	union _double_color_t *p = (union _double_color_t *)&sendbuf;
+	for(i=0;i<siz;i+=6) {
+		if( i%720 == 0 ) { // 240*3
+			lcd_set_position(0,240-i/720,239,240-i/720);
+			// lcd_set_position(200-i/20,40,200,200);
+			lcd_set_dc(1);
+		}
+		p->r0 = start[i+0] >> 3;
+		p->g0 = start[i+1] >> 2;
+		p->b0 = start[i+2] >> 3;
+		p->r1 = start[i+3] >> 3;
+		p->g1 = start[i+4] >> 2;
+		p->b1 = start[i+5] >> 3;
+		lcd_write_32bit_none();
 	}
 }
 
@@ -402,7 +476,8 @@ esp_err_t spilcd_init()
 	// for( int i=0;i<LCD_VER;i++ )
 		// memset(framebuffer[i], 0xFFFF, LCD_HOR);
 	// lcd_update();
-	lcd_clear32(0xf00f);
+	// lcd_clear32(0xf00f);
+	draw_background(background);
 	draw_qrcode();
 	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
 	// backlight_listen_thread
