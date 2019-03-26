@@ -253,11 +253,10 @@ void lcd_clear(uint16_t color)
 
 void draw_qrcode(void)
 {
-	uint32_t ofsbit = 0x3e;// qrcode[0xd] << 24 | qrcode[0xc] << 16 | qrcode[0xb] << 8 | qrcode[0xa];
-	size_t siz = 3200; // (qrcode[3] << 8 | qrcode[2]) - ofsbit;
+	uint32_t ofsbit = qrcode[0xd] << 24 | qrcode[0xc] << 16 | qrcode[0xb] << 8 | qrcode[0xa];
+	size_t siz = (qrcode[3] << 8 | qrcode[2]) - ofsbit;
 	uint8_t *start = &qrcode[ofsbit];
 	int i, j;
-	// lcd_set_position(40,40,200,200);
 	trans_color.bits.mosi = 16;
 	for(i=0;i<siz;i++) {
 		if( i%20 == 0 ) {
