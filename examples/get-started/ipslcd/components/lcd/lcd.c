@@ -693,7 +693,7 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 {
     uint8_t temp;
     uint8_t pos,t;
-	uint16_t x0=x;
+	// uint16_t x0=x;
 	uint16_t colortemp=color;      
     if(x>LCD_HOR-ascii_1608.width||y>LCD_VER-ascii_1608.hight) return;	       
 	num = num - ' ';
@@ -736,10 +736,10 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 				}
 				lcd_write_color(color);	
 				temp>>=1; 
-				x++;
+				// x++;
 		    }
-			x=x0;
-			y++;
+			// x=x0;
+			// y++;
 		}	
 	}
 	else//叠加方式
