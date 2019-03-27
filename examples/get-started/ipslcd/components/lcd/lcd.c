@@ -165,7 +165,7 @@ static esp_err_t lcd_write_32bit(uint32_t data)
     return ESP_OK;
 }
 
-static esp_err_t lcd_write_32bit_none(void)
+__attribute__((unused)) static esp_err_t lcd_write_32bit_none(void)
 {
     int x, y;
 
@@ -437,50 +437,11 @@ void draw_background(const uint8_t table[])
 #endif
 
 #if 1
-void draw_background_line(uint16_t x, uint16_t y, uint16_t w, const uint8_t table[])
-{
-	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
-	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
-	uint8_t const *start = (uint8_t *)&background[0x36]; // &table[ofsbit];
-	int i =(LCD_HOR-y-1)*3*240+x*3;
-	trans_color.bits.mosi = 32;
-	union _double_color_t {
-		uint32_t data;
-		struct {
-			uint32_t r0:5;
-			uint32_t g0:6;
-			uint32_t b0:5;
-			uint32_t r1:5;
-			uint32_t g1:6;
-			uint32_t b1:5;
-		};
-	};
-	size_t size =3*w;
-	union _double_color_t *p = (union _double_color_t *)&sendbuf;
-	lcd_set_position(x, y, x+w-1, y+1);
-	lcd_set_dc(1);
-	for(;i<size;i+=6) {
-		p->r0 = start[i+0] >> 3;
-		p->g0 = start[i+1] >> 2;
-		p->b0 = start[i+2] >> 3;
-		p->r1 = start[i+3] >> 3;
-		p->g1 = start[i+4] >> 2;
-		p->b1 = start[i+5] >> 3;
-		lcd_write_32bit_none();
-	}
-}
 void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const uint8_t table[])
 {
-	int i;
-	for(;y0<=y1;y0++)
-	{
-		draw_background_line(x0, y0, x1-x0+1, table);
-	}
-	return ;
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
-	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
+	// size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
 	uint8_t const *start = (uint8_t *)&table[ofsbit];
-	trans_color.bits.mosi = 32;
 	union _double_color_t {
 		uint32_t data;
 		struct {
@@ -492,37 +453,83 @@ void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1
 			uint32_t b1:5;
 		};
 	};
+	int c,r;
 	int x, y;
-	union _double_color_t *p;
-	for(i=0;i<siz;i+=90) {
-		if( i%720 == 0 ) { // 240*3
-			lcd_set_position(x0,y1-i/720,x1,y1-i/720);
-			lcd_set_dc(1);
-		}
-		// Waiting for an incomplete transfer
+	lcd_set_position(x0, y0, x1, y1);
+	lcd_set_dc(1);
+#define SPI_TRANS16WORDS
+#ifdef SPI_TRANS16WORDS
+	trans_color.bits.mosi = 32;
+#else
+	trans_color.bits.mosi = 16;
+#endif
+	union _double_color_t dcolor;
+	for(r=y0;r<=y1;r++) {
+#ifdef SPI_TRANS16WORDS
 		while (SPI1.cmd.usr);
 		SPI1.user.usr_command = 0;
 		SPI1.user.usr_addr = 0;
-		SPI1.user.usr_mosi = 1;
-		SPI1.user1.usr_mosi_bitlen = 479; // 15*32; // 31;
-		for(x=0;x<15;x++) {
-			p = (union _double_color_t *)&SPI1.data_buf[x];
-			p->r1 = start[i+6*x+0] >> 3;
-			p->g1 = start[i+6*x+1] >> 2;
-			p->b1 = start[i+6*x+2] >> 3;
-			p->r0 = start[i+6*x+3] >> 3;
-			p->g0 = start[i+6*x+4] >> 2;
-			p->b0 = start[i+6*x+5] >> 3;
+		SPI1.user.usr_mosi = 1; 
+#endif
+		x = 0;
+		for(c=x0;c<=x1;c++) { // max 16 words
+			y = ((LCD_VER-r-1)*240+c)*3;
+#ifdef SPI_TRANS16WORDS
+			if( x%2 != 0 ) {
+				dcolor.r0 = start[y + 0] >> 3;
+				dcolor.g0 = start[y + 1] >> 2;
+				dcolor.b0 = start[y + 2] >> 3;
+				SPI1.data_buf[x/2] = dcolor.data;
+			} else {
+				dcolor.r1 = start[y + 0] >> 3;
+				dcolor.g1 = start[y + 1] >> 2;
+				dcolor.b1 = start[y + 2] >> 3;
+			}
+			if(x == 0) {
+				if( x1 - c < 31 ) {
+					SPI1.user1.usr_mosi_bitlen = (x1-c+1)*16-1;
+				} else {
+					SPI1.user1.usr_mosi_bitlen = 511;
+				}
+			}
+			
+			if( x == 31 ) {
+				x = 0;
+				SPI1.user.usr_miso = 0;
+				SPI1.cmd.usr = 1;
+				while (SPI1.cmd.usr);
+				for (x = 0; x < trans_color.bits.miso; x += 32) {
+					y = x / 32;
+					trans_color.miso[y] = SPI1.data_buf[y];
+				}
+			} else {
+				x++;
+			}
+#else
+			dcolor.r0 = start[y + 0] >> 3;
+			dcolor.g0 = start[y + 1] >> 2;
+			dcolor.b0 = start[y + 2] >> 3;
+			dcolor.r1 = start[y + 0] >> 3;
+			dcolor.g1 = start[y + 1] >> 2;
+			dcolor.b1 = start[y + 2] >> 3;
+			lcd_write_color(dcolor.data&0xffff);
+#endif
 		}
-		SPI1.user.usr_miso = 0;
-		SPI1.cmd.usr = 1;
-		while (SPI1.cmd.usr);
-
-		for (x = 0; x < trans_color.bits.miso; x += 32) {
-			y = x / 32;
-			trans_color.miso[y] = SPI1.data_buf[y];
+		if( x != 0 ) {
+			// dcolor.r0 = start[y + 0] >> 3;
+			// dcolor.g0 = start[y + 1] >> 2;
+			// dcolor.b0 = start[y + 2] >> 3;
+			SPI1.data_buf[(x-1)/2] = dcolor.data;
+			x = 0;
+			// SPI1.user1.usr_mosi_bitlen = x*16-1;
+			SPI1.user.usr_miso = 0;
+			SPI1.cmd.usr = 1;
+			while (SPI1.cmd.usr);
+			for (x = 0; x < trans_color.bits.miso; x += 32) {
+				y = x / 32;
+				trans_color.miso[y] = SPI1.data_buf[y];
+			}
 		}
-		// lcd_write_32bit_none();
 	}
 }
 #endif
@@ -656,6 +663,7 @@ esp_err_t spilcd_init()
 	draw_background(background);
 	gpio_set_level(LCD_BACKLIGHT_PIN, 1);
 	draw_qrcode();
+	draw_background_anywhere(100, 100, 139, 139, background);
 	// int i;
 	// for(i=0;i<120;i++)
 	// draw_background_anywhere(119-i, 119-i, i*2, i*2, background);
@@ -701,9 +709,9 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 			uint32_t b1:5;
 		};
 	};
+	trans_color.bits.mosi = 16;
 	if(!mode) //非叠加方式
 	{
-    		trans_color.bits.mosi = 16;
 		lcd_set_dc(1);
 		for(pos=0; pos<ascii_1608.hight; pos++)
 		{ 
@@ -713,7 +721,7 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 		        if(temp&0x01)color=colortemp;
 				else {
 #if 1
-					uint8_t *s = &background[0x36+(((LCD_VER-(y+pos)-1)*240+x+t)*3)];
+					uint8_t *s = (uint8_t *)&background[0x36+(((LCD_VER-(y+pos)-1)*240+x+t)*3)];
 					union _double_color_t p;
 					p.r0 = s[0] >> 3;
 					p.g0 = s[1] >> 2;
@@ -743,7 +751,7 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 		    {                 
 		        if(temp&0x01)lcd_drawpoint(x+t,y+pos, color);//画一个点     
 			else{
-					uint8_t *s = &background[0x36+(((240-(y+pos))*240+x+t)*3)];
+					uint8_t *s = (uint8_t *)&background[0x36+(((240-(y+pos))*240+x+t)*3)];
 					union _double_color_t p;
 					p.r0 = s[0] >> 3;
 					p.g0 = s[1] >> 2;
