@@ -348,6 +348,7 @@ void draw_qrcode(void)
 #endif
 
 extern const uint8_t background[];
+const uint8_t *cur_background = background;
 void draw_background(const uint8_t table[])
 #if 1
 {
@@ -355,6 +356,7 @@ void draw_background(const uint8_t table[])
 	size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
 	uint8_t const *start = (uint8_t *)&table[ofsbit];
 	int i;
+	cur_background = table;
 	trans_color.bits.mosi = 32;
 	union _double_color_t {
 		uint32_t data;
@@ -442,6 +444,7 @@ void draw_background_anywhere(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1
 	uint32_t ofsbit = table[0xd] << 24 | table[0xc] << 16 | table[0xb] << 8 | table[0xa];
 	// size_t siz = (table[5] << 24 | table[4] << 16 | table[3] << 8 | table[2]) - ofsbit;
 	uint8_t const *start = (uint8_t *)&table[ofsbit];
+	cur_background = table;
 	union _double_color_t {
 		uint32_t data;
 		struct {
@@ -721,7 +724,7 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 		        if(temp&0x01)color=colortemp;
 				else {
 #if 1
-					uint8_t *s = (uint8_t *)&background[0x36+(((LCD_VER-(y+pos)-1)*240+x+t)*3)];
+					uint8_t *s = (uint8_t *)&cur_background[0x36+(((LCD_VER-(y+pos)-1)*240+x+t)*3)];
 					union _double_color_t p;
 					p.r0 = s[0] >> 3;
 					p.g0 = s[1] >> 2;
@@ -751,7 +754,7 @@ void lcd_putch(uint16_t x, uint16_t y, uint8_t num, bool mode, uint16_t color)
 		    {                 
 		        if(temp&0x01)lcd_drawpoint(x+t,y+pos, color);//画一个点     
 			else{
-					uint8_t *s = (uint8_t *)&background[0x36+(((240-(y+pos))*240+x+t)*3)];
+					uint8_t *s = (uint8_t *)&cur_background[0x36+(((240-(y+pos))*240+x+t)*3)];
 					union _double_color_t p;
 					p.r0 = s[0] >> 3;
 					p.g0 = s[1] >> 2;

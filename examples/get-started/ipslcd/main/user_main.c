@@ -40,6 +40,7 @@ void app_main(void)
     time_t now;
     struct tm timeinfo;
     char strftime_buf[64];
+    // const uint8_t *all[] = {cloudy,  overcast};//,  rain}; // ,  snow,  sunny,  thunder};
     while(1) {
 extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
         // update 'now' variable with current time
@@ -50,6 +51,7 @@ extern void lcd_print(uint16_t x, uint16_t y, char *str, uint16_t color);
             ESP_LOGE(TAG, "The current date/time error");
         } else {
             strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+            // draw_background_anywhere(0, 0, 239, 239, all[i]);
             lcd_print(20, 40, strftime_buf, 0xffff);
             ESP_LOGI(TAG, "The current date/time in Shanghai is: %s", strftime_buf);
         }
